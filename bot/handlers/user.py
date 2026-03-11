@@ -13,10 +13,9 @@ from bot.keyboards import (
     consult_offer_keyboard,
     diagnostic_question_keyboard,
     diagnostic_result_keyboard,
-    payment_url_keyboard,
     welcome_keyboard,
 )
-from bot.services.payment_service import create_pending_payment
+from bot.services.payment_service import create_pending_payment, get_latest_pending_payment
 from bot.services.reminder_service import (
     DIAG_REMINDER_KINDS,
     PAYMENT_CLUB_REMINDER_KINDS,
@@ -219,13 +218,35 @@ async def offer_club(
     if not callback.from_user or not callback.message:
         return
 
+    if not settings.tribute_club_payment_url:
+        await callback.answer("Не настроен TRIBUTE_CLUB_PAYMENT_URL", show_alert=True)
+        return
+
     async with session_factory() as session:
         user = await get_or_create_user(session, callback.from_user, settings.admin_ids)
-        user.stage = UserStage.OFFER_CLUB
+        user.stage = UserStage.PAYMENT_CLUB
         await session.commit()
-        await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
 
-    await _edit_funnel_message(callback.message, CLUB_OFFER_TEXT, reply_markup=club_offer_keyboard())
+        await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
+        await cancel_pending_reminders(session, user.id, PAYMENT_CLUB_REMINDER_KINDS)
+
+        existing_pending = await get_latest_pending_payment(session, user.id, ProductType.CLUB)
+        if existing_pending is None:
+            await create_pending_payment(
+                session,
+                user_id=user.id,
+                product=ProductType.CLUB,
+                amount_rub=settings.club_price_rub,
+                checkout_url=settings.tribute_club_payment_url,
+                payload={"source": "offer_screen"},
+            )
+        await schedule_payment_pause(session, user.id, ProductType.CLUB)
+
+    await _edit_funnel_message(
+        callback.message,
+        CLUB_OFFER_TEXT,
+        reply_markup=club_offer_keyboard(settings.tribute_club_payment_url),
+    )
     await callback.answer()
 
 
@@ -238,13 +259,35 @@ async def offer_consult(
     if not callback.from_user or not callback.message:
         return
 
+    if not settings.tribute_consult_payment_url:
+        await callback.answer("Не настроен TRIBUTE_CONSULT_PAYMENT_URL", show_alert=True)
+        return
+
     async with session_factory() as session:
         user = await get_or_create_user(session, callback.from_user, settings.admin_ids)
-        user.stage = UserStage.OFFER_CONSULT
+        user.stage = UserStage.PAYMENT_CONSULT
         await session.commit()
-        await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
 
-    await _edit_funnel_message(callback.message, CONSULT_OFFER_TEXT, reply_markup=consult_offer_keyboard())
+        await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
+        await cancel_pending_reminders(session, user.id, PAYMENT_CONSULT_REMINDER_KINDS)
+
+        existing_pending = await get_latest_pending_payment(session, user.id, ProductType.CONSULT)
+        if existing_pending is None:
+            await create_pending_payment(
+                session,
+                user_id=user.id,
+                product=ProductType.CONSULT,
+                amount_rub=settings.consult_price_rub,
+                checkout_url=settings.tribute_consult_payment_url,
+                payload={"source": "offer_screen"},
+            )
+        await schedule_payment_pause(session, user.id, ProductType.CONSULT)
+
+    await _edit_funnel_message(
+        callback.message,
+        CONSULT_OFFER_TEXT,
+        reply_markup=consult_offer_keyboard(settings.tribute_consult_payment_url),
+    )
     await callback.answer()
 
 
@@ -269,22 +312,19 @@ async def pay_club(
         await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
         await cancel_pending_reminders(session, user.id, PAYMENT_CLUB_REMINDER_KINDS)
 
-        await create_pending_payment(
-            session,
-            user_id=user.id,
-            product=ProductType.CLUB,
-            amount_rub=settings.club_price_rub,
-            checkout_url=settings.tribute_club_payment_url,
-            payload={"source": "button"},
-        )
+        existing_pending = await get_latest_pending_payment(session, user.id, ProductType.CLUB)
+        if existing_pending is None:
+            await create_pending_payment(
+                session,
+                user_id=user.id,
+                product=ProductType.CLUB,
+                amount_rub=settings.club_price_rub,
+                checkout_url=settings.tribute_club_payment_url,
+                payload={"source": "button"},
+            )
         await schedule_payment_pause(session, user.id, ProductType.CLUB)
 
-    await _edit_funnel_message(
-        callback.message,
-        "Оплата SENSEY club. Нажми кнопку ниже.",
-        reply_markup=payment_url_keyboard("💳 Войти в SENSEY club — 3000 ₽", settings.tribute_club_payment_url),
-    )
-    await callback.answer()
+    await callback.answer(url=settings.tribute_club_payment_url)
 
 
 @router.callback_query(F.data == "pay:consult")
@@ -308,19 +348,16 @@ async def pay_consult(
         await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
         await cancel_pending_reminders(session, user.id, PAYMENT_CONSULT_REMINDER_KINDS)
 
-        await create_pending_payment(
-            session,
-            user_id=user.id,
-            product=ProductType.CONSULT,
-            amount_rub=settings.consult_price_rub,
-            checkout_url=settings.tribute_consult_payment_url,
-            payload={"source": "button"},
-        )
+        existing_pending = await get_latest_pending_payment(session, user.id, ProductType.CONSULT)
+        if existing_pending is None:
+            await create_pending_payment(
+                session,
+                user_id=user.id,
+                product=ProductType.CONSULT,
+                amount_rub=settings.consult_price_rub,
+                checkout_url=settings.tribute_consult_payment_url,
+                payload={"source": "button"},
+            )
         await schedule_payment_pause(session, user.id, ProductType.CONSULT)
 
-    await _edit_funnel_message(
-        callback.message,
-        "Запись на личный разбор. Нажми кнопку ниже.",
-        reply_markup=payment_url_keyboard("💳 Записаться на разбор — 10 000 ₽", settings.tribute_consult_payment_url),
-    )
-    await callback.answer()
+    await callback.answer(url=settings.tribute_consult_payment_url)

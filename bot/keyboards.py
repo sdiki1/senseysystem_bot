@@ -41,15 +41,15 @@ def continue_diagnostic_keyboard(label: str) -> InlineKeyboardMarkup:
     )
 
 
-def club_offer_keyboard() -> InlineKeyboardMarkup:
+def club_offer_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="💳 Войти в SENSEY club — 3000 ₽", callback_data="pay:club")]]
+        inline_keyboard=[[InlineKeyboardButton(text="💳 Войти в SENSEY club — 3000 ₽", url=url)]]
     )
 
 
-def consult_offer_keyboard() -> InlineKeyboardMarkup:
+def consult_offer_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="💳 Записаться на разбор — 10 000 ₽", callback_data="pay:consult")]]
+        inline_keyboard=[[InlineKeyboardButton(text="💳 Записаться на разбор — 10 000 ₽", url=url)]]
     )
 
 
