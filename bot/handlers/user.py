@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -41,6 +42,15 @@ router = Router(name="user")
 def _build_question_text(index: int) -> str:
     question = DIAGNOSTIC_QUESTIONS[index]
     return f"{question.title}\n{question.body}"
+
+
+async def _edit_funnel_message(message: Message, text: str, reply_markup) -> None:
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest as error:
+        if "message is not modified" in str(error).lower():
+            return
+        raise
 
 
 @router.message(CommandStart())
@@ -85,7 +95,8 @@ async def start_diagnostic(
         await schedule_diagnostic_pause(session, user.id, expected_step=0)
 
     first_question = DIAGNOSTIC_QUESTIONS[0]
-    await callback.message.answer(
+    await _edit_funnel_message(
+        callback.message,
         _build_question_text(0),
         reply_markup=diagnostic_question_keyboard(0, first_question.options),
     )
@@ -115,9 +126,12 @@ async def continue_diagnostic(
         await schedule_diagnostic_pause(session, user.id, expected_step=step)
 
     question = DIAGNOSTIC_QUESTIONS[step]
-    target = callback.message or callback.from_user
-    if isinstance(target, Message):
-        await target.answer(_build_question_text(step), reply_markup=diagnostic_question_keyboard(step, question.options))
+    if callback.message:
+        await _edit_funnel_message(
+            callback.message,
+            _build_question_text(step),
+            reply_markup=diagnostic_question_keyboard(step, question.options),
+        )
     await callback.answer()
 
 
@@ -152,7 +166,8 @@ async def handle_diagnostic_answer(
             current = user.diagnostic_step
             if current < len(DIAGNOSTIC_QUESTIONS):
                 question = DIAGNOSTIC_QUESTIONS[current]
-                await callback.message.answer(
+                await _edit_funnel_message(
+                    callback.message,
                     _build_question_text(current),
                     reply_markup=diagnostic_question_keyboard(current, question.options),
                 )
@@ -177,7 +192,8 @@ async def handle_diagnostic_answer(
             await schedule_diagnostic_pause(session, user.id, expected_step=next_step)
 
             next_question = DIAGNOSTIC_QUESTIONS[next_step]
-            await callback.message.answer(
+            await _edit_funnel_message(
+                callback.message,
                 _build_question_text(next_step),
                 reply_markup=diagnostic_question_keyboard(next_step, next_question.options),
             )
@@ -190,7 +206,7 @@ async def handle_diagnostic_answer(
         await cancel_pending_reminders(session, user.id, DIAG_REMINDER_KINDS)
         await schedule_result_pause(session, user.id)
 
-    await callback.message.answer(DIAGNOSTIC_RESULT_TEXT, reply_markup=diagnostic_result_keyboard())
+    await _edit_funnel_message(callback.message, DIAGNOSTIC_RESULT_TEXT, reply_markup=diagnostic_result_keyboard())
     await callback.answer()
 
 
@@ -209,7 +225,7 @@ async def offer_club(
         await session.commit()
         await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
 
-    await callback.message.answer(CLUB_OFFER_TEXT, reply_markup=club_offer_keyboard())
+    await _edit_funnel_message(callback.message, CLUB_OFFER_TEXT, reply_markup=club_offer_keyboard())
     await callback.answer()
 
 
@@ -228,7 +244,7 @@ async def offer_consult(
         await session.commit()
         await cancel_pending_reminders(session, user.id, RESULT_REMINDER_KINDS)
 
-    await callback.message.answer(CONSULT_OFFER_TEXT, reply_markup=consult_offer_keyboard())
+    await _edit_funnel_message(callback.message, CONSULT_OFFER_TEXT, reply_markup=consult_offer_keyboard())
     await callback.answer()
 
 
@@ -263,7 +279,8 @@ async def pay_club(
         )
         await schedule_payment_pause(session, user.id, ProductType.CLUB)
 
-    await callback.message.answer(
+    await _edit_funnel_message(
+        callback.message,
         "Оплата SENSEY club. Нажми кнопку ниже.",
         reply_markup=payment_url_keyboard("💳 Войти в SENSEY club — 3000 ₽", settings.tribute_club_payment_url),
     )
@@ -301,7 +318,8 @@ async def pay_consult(
         )
         await schedule_payment_pause(session, user.id, ProductType.CONSULT)
 
-    await callback.message.answer(
+    await _edit_funnel_message(
+        callback.message,
         "Запись на личный разбор. Нажми кнопку ниже.",
         reply_markup=payment_url_keyboard("💳 Записаться на разбор — 10 000 ₽", settings.tribute_consult_payment_url),
     )
