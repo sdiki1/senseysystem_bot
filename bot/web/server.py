@@ -29,6 +29,7 @@ SUCCESS_EVENTS = {
     "new_purchase",
 }
 FAIL_EVENTS = {"payment_failed", "payment_cancelled", "payment_canceled"}
+RENEWAL_EVENTS = {"renewed_subscription"}
 
 
 class TributeWebhookServer:
@@ -107,7 +108,7 @@ class TributeWebhookServer:
                 await cancel_pending_reminders(session, user.id)
 
                 if parsed.product == ProductType.CLUB:
-                    await self._on_club_payment(session, user, parsed.event_type, parsed.is_recurrent)
+                    await self._on_club_payment(session, user, parsed.event_type)
                 else:
                     await self._on_consult_payment(user)
             else:
@@ -133,9 +134,9 @@ class TributeWebhookServer:
         except Exception:
             logger.exception("Failed to send consult success message user=%s", user.telegram_id)
 
-    async def _on_club_payment(self, session: AsyncSession, user: User, event_type: str, is_recurrent: bool) -> None:
-        # Recurring renewal: user does nothing, bot just confirms extension.
-        if event_type == "renewed_subscription" or is_recurrent:
+    async def _on_club_payment(self, session: AsyncSession, user: User, event_type: str) -> None:
+        # Renewal events should not send a new invite.
+        if event_type in RENEWAL_EVENTS:
             try:
                 await self.bot.send_message(user.telegram_id, RENEWED_SUBSCRIPTION_TEXT)
             except Exception:
@@ -143,13 +144,18 @@ class TributeWebhookServer:
             return
 
         try:
-            await self.bot.send_message(user.telegram_id, POST_PAYMENT_CLUB_TEXT)
             invite_link = await self._get_invite_link(user.telegram_id)
+            await self.bot.send_message(user.telegram_id, POST_PAYMENT_CLUB_TEXT)
             if invite_link:
                 await self.bot.send_message(
                     user.telegram_id,
                     "Доступ в канал:",
                     reply_markup=channel_access_keyboard(invite_link),
+                )
+            else:
+                await self.bot.send_message(
+                    user.telegram_id,
+                    "Не удалось автоматически создать ссылку в канал. Напиши в поддержку, чтобы выдали доступ вручную.",
                 )
         except Exception:
             logger.exception("Failed to send club success message user=%s", user.telegram_id)
@@ -157,21 +163,20 @@ class TributeWebhookServer:
         await schedule_post_club_payment(session, user.id)
 
     async def _get_invite_link(self, telegram_id: int) -> str | None:
+        if self.settings.sensey_channel_id:
+            try:
+                expire = datetime.now(timezone.utc) + timedelta(hours=2)
+                invite: ChatInviteLink = await self.bot.create_chat_invite_link(
+                    chat_id=self.settings.sensey_channel_id,
+                    member_limit=1,
+                    expire_date=expire,
+                    name=f"sensey_{telegram_id}",
+                )
+                return invite.invite_link
+            except Exception:
+                logger.exception("Failed to create channel invite for user=%s", telegram_id)
+
         if self.settings.sensey_channel_invite_link:
             return self.settings.sensey_channel_invite_link
 
-        if not self.settings.sensey_channel_id:
-            return None
-
-        try:
-            expire = datetime.now(timezone.utc) + timedelta(hours=2)
-            invite: ChatInviteLink = await self.bot.create_chat_invite_link(
-                chat_id=self.settings.sensey_channel_id,
-                member_limit=1,
-                expire_date=expire,
-                name=f"sensey_{telegram_id}",
-            )
-            return invite.invite_link
-        except Exception:
-            logger.exception("Failed to create channel invite for user=%s", telegram_id)
-            return None
+        return None
