@@ -10,6 +10,7 @@ from bot.config import get_settings
 from bot.db import build_engine, build_sessionmaker, init_models
 from bot.handlers import register_routers
 from bot.services.scheduler_service import ReminderScheduler
+from bot.services.tribute_polling_service import TributePollingService
 from bot.web.server import TributeWebhookServer
 
 
@@ -35,9 +36,17 @@ async def run() -> None:
 
     reminder_scheduler = ReminderScheduler(bot, session_factory, settings)
     webhook_server = TributeWebhookServer(bot, session_factory, settings)
+    tribute_poller = TributePollingService(webhook_server, settings)
+    polling_mode = False
 
     await reminder_scheduler.start()
-    await webhook_server.start()
+    if settings.tribute_polling_enabled:
+        polling_mode = await tribute_poller.start()
+        if not polling_mode:
+            logging.getLogger(__name__).warning("Polling is disabled: fallback to webhook mode")
+            await webhook_server.start()
+    else:
+        await webhook_server.start()
 
     try:
         await dispatcher.start_polling(
@@ -48,7 +57,10 @@ async def run() -> None:
         )
     finally:
         await reminder_scheduler.stop()
-        await webhook_server.stop()
+        if polling_mode:
+            await tribute_poller.stop()
+        else:
+            await webhook_server.stop()
         await bot.session.close()
         await engine.dispose()
 

@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     tribute_consult_product_id: str | None = Field(default=None, alias="TRIBUTE_CONSULT_PRODUCT_ID")
     tribute_polling_enabled: bool = Field(default=True, alias="TRIBUTE_POLLING_ENABLED")
     tribute_polling_interval_sec: int = Field(default=20, alias="TRIBUTE_POLLING_INTERVAL_SEC")
-    tribute_polling_days_back: int = Field(default=2, alias="TRIBUTE_POLLING_DAYS_BACK")
+    tribute_polling_days_back: int = Field(default=0, alias="TRIBUTE_POLLING_DAYS_BACK")
     tribute_polling_orders_url: str = Field(default="https://tribute.tg/api/v1/shop/orders", alias="TRIBUTE_POLLING_ORDERS_URL")
     tribute_polling_order_url_template: str = Field(
         default="https://tribute.tg/api/v1/shop/orders/{order_id}",

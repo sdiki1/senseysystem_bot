@@ -4,7 +4,7 @@ Telegram-бот по ТЗ:
 - диагностика из 8 вопросов
 - 2 ветки оффера (SENSEY club / личный разбор)
 - автоворонки напоминаний по таймерам
-- webhook-интеграция Tribute
+- polling/webhook-интеграция Tribute
 - админ-панель: статистика + рассылки text/photo/video
 
 ## Стек
@@ -38,9 +38,16 @@ docker compose logs -f bot
 - `TRIBUTE_CLUB_PAYMENT_URL` — ссылка Tribute на рекуррентный продукт SENSEY club
 - `TRIBUTE_CONSULT_PAYMENT_URL` — ссылка Tribute на разовый продукт личного разбора
 - `TRIBUTE_CLUB_PRODUCT_ID`, `TRIBUTE_CONSULT_PRODUCT_ID` — опционально для точного роутинга вебхуков по продуктам
+- `TRIBUTE_POLLING_ENABLED` — включить опрос Tribute API вместо webhook (`true`/`false`)
+- `TRIBUTE_POLLING_INTERVAL_SEC` — интервал опроса в секундах
+- `TRIBUTE_POLLING_DAYS_BACK` — если `> 0`, ограничивает polling последними N днями; `0` = без фильтра по датам
+- `TRIBUTE_POLLING_ORDERS_URL` — URL списка заказов для polling
+- `TRIBUTE_POLLING_ORDER_URL_TEMPLATE` — URL карточки заказа (должен содержать `{order_id}`)
 
-## Webhook Tribute
-В приложении поднимается HTTP endpoint:
+## Tribute: Polling и Webhook
+По умолчанию включен polling (`TRIBUTE_POLLING_ENABLED=true`): бот периодически опрашивает Tribute API и сам обрабатывает изменения статуса оплаты.
+
+Если нужен webhook-режим, установи `TRIBUTE_POLLING_ENABLED=false`. Тогда поднимется HTTP endpoint:
 - `POST {WEBHOOK_PATH}`
 - по умолчанию: `POST /webhooks/tribute`
 - порт: `WEB_PORT` (по умолчанию `8080`)
@@ -62,4 +69,3 @@ docker compose logs -f bot
 
 Дополнительно:
 - `/stats` — быстрая статистика
-

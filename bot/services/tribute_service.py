@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,6 +47,9 @@ def parse_tribute_event(raw: dict[str, Any], settings: Settings, user: User | No
         payload.get("payment_id")
         or payload.get("transaction_id")
         or payload.get("id")
+        or payload.get("uuid")
+        or payload.get("chargeUuid")
+        or payload.get("charge_uuid")
         or payload.get("subscription_id")
         or ""
     ).strip() or None
@@ -66,18 +70,38 @@ def parse_tribute_event(raw: dict[str, Any], settings: Settings, user: User | No
 def _extract_telegram_id(payload: dict[str, Any]) -> int | None:
     possible = [
         payload.get("telegram_id"),
+        payload.get("telegramId"),
         payload.get("telegramID"),
         payload.get("user_id"),
+        payload.get("customer_id"),
+        payload.get("customerId"),
         payload.get("subscriber", {}).get("telegram_id") if isinstance(payload.get("subscriber"), dict) else None,
         payload.get("user", {}).get("telegram_id") if isinstance(payload.get("user"), dict) else None,
+        payload.get("customer", {}).get("telegram_id") if isinstance(payload.get("customer"), dict) else None,
+        payload.get("customer", {}).get("telegramId") if isinstance(payload.get("customer"), dict) else None,
     ]
     for value in possible:
         if value is None:
             continue
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            continue
+        converted = _coerce_int(value)
+        if converted is not None:
+            return converted
+    return None
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, str):
+        match = re.search(r"\d{5,}", value)
+        if match:
+            try:
+                return int(match.group(0))
+            except ValueError:
+                return None
     return None
 
 

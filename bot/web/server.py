@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from aiohttp import web
 from aiogram import Bot
@@ -10,9 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.config import Settings
-from bot.enums import ProductType
+from bot.enums import PaymentStatus, ProductType
 from bot.keyboards import channel_access_keyboard
-from bot.models import User
+from bot.models import Payment, User
 from bot.services.payment_service import cancel_subscription, mark_payment_failed, mark_payment_success
 from bot.services.reminder_service import cancel_pending_reminders, schedule_post_club_payment
 from bot.services.tribute_service import parse_tribute_event, verify_tribute_signature
@@ -72,15 +73,27 @@ class TributeWebhookServer:
             logger.exception("Invalid webhook JSON")
             return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
 
+        await self.process_tribute_event(data, source="webhook")
+
+        return web.json_response({"ok": True})
+
+    async def process_tribute_event(self, data: dict[str, Any], source: str = "polling") -> None:
         async with self.session_factory() as session:
             parsed = parse_tribute_event(data, self.settings)
             if parsed.telegram_id is None:
-                logger.warning("Webhook has no telegram_id event=%s", parsed.event_type)
-                return web.json_response({"ok": True, "ignored": "no_telegram_id"})
+                logger.warning("Tribute event has no telegram_id source=%s event=%s", source, parsed.event_type)
+                return
 
             user = await self._get_or_create_user(session, parsed.telegram_id)
 
             if parsed.event_type in FAIL_EVENTS:
+                if parsed.provider_payment_id and await self._is_duplicate_payment_event(
+                    session,
+                    parsed.provider_payment_id,
+                    PaymentStatus.FAILED,
+                ):
+                    logger.info("Duplicate failed payment ignored source=%s provider_payment_id=%s", source, parsed.provider_payment_id)
+                    return
                 await mark_payment_failed(
                     session,
                     user.id,
@@ -88,13 +101,20 @@ class TributeWebhookServer:
                     parsed.payload,
                     parsed.provider_payment_id,
                 )
-                return web.json_response({"ok": True})
+                return
 
             if parsed.event_type == "cancelled_subscription":
                 await cancel_subscription(session, user, parsed.payload)
-                return web.json_response({"ok": True})
+                return
 
             if parsed.event_type in SUCCESS_EVENTS:
+                if parsed.provider_payment_id and await self._is_duplicate_payment_event(
+                    session,
+                    parsed.provider_payment_id,
+                    PaymentStatus.PAID,
+                ):
+                    logger.info("Duplicate paid payment ignored source=%s provider_payment_id=%s", source, parsed.provider_payment_id)
+                    return
                 await mark_payment_success(
                     session,
                     user,
@@ -112,9 +132,7 @@ class TributeWebhookServer:
                 else:
                     await self._on_consult_payment(user)
             else:
-                logger.info("Ignoring Tribute event type=%s", parsed.event_type)
-
-        return web.json_response({"ok": True})
+                logger.info("Ignoring Tribute event source=%s type=%s", source, parsed.event_type)
 
     async def _get_or_create_user(self, session: AsyncSession, telegram_id: int) -> User:
         existing = await session.execute(select(User).where(User.telegram_id == telegram_id).limit(1))
@@ -180,3 +198,17 @@ class TributeWebhookServer:
             return self.settings.sensey_channel_invite_link
 
         return None
+
+    async def _is_duplicate_payment_event(
+        self,
+        session: AsyncSession,
+        provider_payment_id: str,
+        status: PaymentStatus,
+    ) -> bool:
+        row = await session.execute(
+            select(Payment.id).where(
+                Payment.provider_payment_id == provider_payment_id,
+                Payment.status == status,
+            ).limit(1)
+        )
+        return row.scalar_one_or_none() is not None
