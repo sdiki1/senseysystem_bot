@@ -153,32 +153,28 @@ class TributeWebhookServer:
             logger.exception("Failed to send consult success message user=%s", user.telegram_id)
 
     async def _on_club_payment(self, session: AsyncSession, user: User, event_type: str) -> None:
-        # Renewal events should not send a new invite.
-        if event_type in RENEWAL_EVENTS:
-            try:
-                await self.bot.send_message(user.telegram_id, RENEWED_SUBSCRIPTION_TEXT)
-            except Exception:
-                logger.exception("Failed to send renewal message user=%s", user.telegram_id)
-            return
+        is_renewal = event_type in RENEWAL_EVENTS
+        status_text = RENEWED_SUBSCRIPTION_TEXT if is_renewal else POST_PAYMENT_CLUB_TEXT
 
         try:
             invite_link = await self._get_invite_link(user.telegram_id)
-            await self.bot.send_message(user.telegram_id, POST_PAYMENT_CLUB_TEXT)
+            await self.bot.send_message(user.telegram_id, status_text)
             if invite_link:
                 await self.bot.send_message(
                     user.telegram_id,
-                    "Доступ в канал:",
+                    f"Ссылка для вступления в группу SENSEY club:\n{invite_link}",
                     reply_markup=channel_access_keyboard(invite_link),
                 )
             else:
                 await self.bot.send_message(
                     user.telegram_id,
-                    "Не удалось автоматически создать ссылку в канал. Напиши в поддержку, чтобы выдали доступ вручную.",
+                    "Не удалось автоматически создать ссылку в группу. Напиши в поддержку, чтобы выдали доступ вручную.",
                 )
         except Exception:
             logger.exception("Failed to send club success message user=%s", user.telegram_id)
 
-        await schedule_post_club_payment(session, user.id)
+        if not is_renewal:
+            await schedule_post_club_payment(session, user.id)
 
     async def _get_invite_link(self, telegram_id: int) -> str | None:
         if self.settings.sensey_channel_id:

@@ -59,7 +59,7 @@ def payment_url_keyboard(label: str, url: str) -> InlineKeyboardMarkup:
 
 def channel_access_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🔓 Перейти в SENSEY club", url=url)]]
+        inline_keyboard=[[InlineKeyboardButton(text="🔓 Вступить в SENSEY club", url=url)]]
     )
 
 
